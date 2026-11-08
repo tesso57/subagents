@@ -1,0 +1,41 @@
+{
+  "name": "pi-subagents-from-scratch",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "typebox": "^1.3.27"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "description": "Delegate tasks to repository-defined Pi subagents with configurable concurrency and worktree isolation",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "extension",
+    "subagents"
+  ],
+  "files": [
+    "index.ts",
+    "src/**/*.ts"
+  ],
+  "license": "MIT"
+}
