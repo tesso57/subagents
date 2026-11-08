@@ -10,7 +10,13 @@
 
 ## インストール
 
-このリポジトリをクローンした状態で、次のように Pi にインストールできます。
+GitHub にリポジトリが公開された後は、次のように Pi にインストールできます。
+
+```sh
+pi install git:github.com/tesso57/subagents
+```
+
+クローン済みの場合は、ローカルからインストールすることもできます。
 
 ```sh
 pi install /path/to/subagents

@@ -37,5 +37,13 @@
     "index.ts",
     "src/**/*.ts"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tesso57/subagents.git"
+  },
+  "homepage": "https://github.com/tesso57/subagents#readme",
+  "bugs": {
+    "url": "https://github.com/tesso57/subagents/issues"
+  }
 }
