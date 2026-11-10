@@ -55,10 +55,10 @@ export function createMockPi(responses: Responses = {}) {
       if (!command) throw new Error(`Unknown command: ${name}`);
       await command.handler(args, context);
     },
-    async emit(name: string, event: unknown) {
+    async emit(name: string, event: unknown, eventContext: ExtensionContext = context) {
       const results: unknown[] = [];
       for (const handler of [...(events.get(name) ?? [])]) {
-        results.push(await handler(event as never, context));
+        results.push(await handler(event as never, eventContext));
       }
       return results;
     },

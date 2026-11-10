@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configuredProjectExtensions } from '../extensions/src/resources.ts';
+import { createMockPi } from './helpers/mock-pi.ts';
 
 test('resolves project-configured extensions outside the .pi directory', async () => {
  const root=mkdtempSync(join(tmpdir(),'project-extension-')),agentDir=mkdtempSync(join(tmpdir(),'project-extension-cfg-'));
@@ -18,9 +19,9 @@ test('worktree child rejects a changed hook-only project extension', async () =>
  writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nWork.');writeFileSync(join(root,'.pi','settings.json'),JSON.stringify({extensions:['../guard.js']}));
  const guard=join(root,'guard.js');writeFileSync(guard,'export default function(){}');git('add','.');git('commit','-m','base');writeFileSync(guard,"export default function(pi){pi.on('tool_call',()=>({block:true,reason:'parent guard'}));}");
  const previous=process.env.PI_CODING_AGENT_DIR;process.env.PI_CODING_AGENT_DIR=agentDir;
- const tools=new Map<string,any>(),events=new Map<string,any>();const api:any={registerTool(t:any){tools.set(t.name,t)},on(name:string,fn:any){events.set(name,fn)},getActiveTools(){return ['read']},getAllTools(){return []},sendMessage(){}};extension(api);
+ const mock=createMockPi();Object.assign(mock.pi,{getActiveTools:()=>['read'],getAllTools:()=>[],sendMessage:()=>{}});extension(mock.pi);const tools:Map<string,any>=mock.tools;
  const ctx:any={cwd:root,isProjectTrusted:()=>true,model:undefined,modelRegistry:{},thinkingLevel:'off'};
- try {const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/extension.*differs/i);} finally {await events.get('session_shutdown')();if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
+ try {const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/extension.*differs/i);} finally {await mock.emit('session_shutdown',{type:'session_shutdown',reason:'quit'});if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
 });
 
 test('includes local package roots so supporting extension files are checked', async () => {
@@ -46,11 +47,11 @@ test('rejects a configured guard changed and committed after parent startup', as
  git('init');git('config','commit.gpgsign','false');git('config','user.email','test@example.test');git('config','user.name','Test');mkdirSync(join(root,'.pi','agents'),{recursive:true});
  writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nWork.');writeFileSync(join(root,'.pi','settings.json'),JSON.stringify({extensions:['../guard.js']}));
  const guard=join(root,'guard.js');writeFileSync(guard,"export default function(pi){pi.on('tool_call',()=>({block:true,reason:'original guard'}));}");git('add','.');git('commit','-m','base');
- const previous=process.env.PI_CODING_AGENT_DIR;process.env.PI_CODING_AGENT_DIR=agentDir;const tools=new Map<string,any>(),events=new Map<string,any>();const api:any={registerTool(t:any){tools.set(t.name,t)},on(name:string,fn:any){events.set(name,fn)},getActiveTools(){return ['read']},getAllTools(){return []},sendMessage(){}};extension(api);
+ const previous=process.env.PI_CODING_AGENT_DIR;process.env.PI_CODING_AGENT_DIR=agentDir;const mock=createMockPi();Object.assign(mock.pi,{getActiveTools:()=>['read'],getAllTools:()=>[],sendMessage:()=>{}});extension(mock.pi);const tools:Map<string,any>=mock.tools;
  const ctx:any={cwd:root,isProjectTrusted:()=>true,model:undefined,modelRegistry:{},thinkingLevel:'off'};
- try {await events.get('session_start')({type:'session_start',reason:'startup'},ctx);writeFileSync(guard,'export default function(){}');git('add','.');git('commit','-m','changed');
+ try {await mock.emit('session_start',{type:'session_start',reason:'startup'},ctx);writeFileSync(guard,'export default function(){}');git('add','.');git('commit','-m','changed');
   const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/changed since parent startup/i);
- } finally {await events.get('session_shutdown')();if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
+ } finally {await mock.emit('session_shutdown',{type:'session_shutdown',reason:'quit'});if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
 });
 
 test('rejects changed relative imports of a configured project extension', async () => {
@@ -59,10 +60,10 @@ test('rejects changed relative imports of a configured project extension', async
  git('init');git('config','commit.gpgsign','false');git('config','user.email','test@example.test');git('config','user.name','Test');mkdirSync(join(root,'.pi','agents'),{recursive:true});
  writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nWork.');writeFileSync(join(root,'.pi','settings.json'),JSON.stringify({extensions:['../guard.js']}));
  writeFileSync(join(root,'guard.js'),"import {enabled} from './policy.js';export default function(pi){if(enabled)pi.on('tool_call',()=>({block:true}));}");const policy=join(root,'policy.js');writeFileSync(policy,'export const enabled=false;');git('add','.');git('commit','-m','base');writeFileSync(policy,'export const enabled=true;');
- const previous=process.env.PI_CODING_AGENT_DIR;process.env.PI_CODING_AGENT_DIR=agentDir;const tools=new Map<string,any>(),events=new Map<string,any>();const api:any={registerTool(t:any){tools.set(t.name,t)},on(name:string,fn:any){events.set(name,fn)},getActiveTools(){return ['read']},getAllTools(){return []},sendMessage(){}};extension(api);
+ const previous=process.env.PI_CODING_AGENT_DIR;process.env.PI_CODING_AGENT_DIR=agentDir;const mock=createMockPi();Object.assign(mock.pi,{getActiveTools:()=>['read'],getAllTools:()=>[],sendMessage:()=>{}});extension(mock.pi);const tools:Map<string,any>=mock.tools;
  const ctx:any={cwd:root,isProjectTrusted:()=>true,model:undefined,modelRegistry:{},thinkingLevel:'off'};
- try {await events.get('session_start')({type:'session_start',reason:'startup'},ctx);const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/extension.*differs/i);
- } finally {await events.get('session_shutdown')();if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
+ try {await mock.emit('session_start',{type:'session_start',reason:'startup'},ctx);const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/extension.*differs/i);
+ } finally {await mock.emit('session_shutdown',{type:'session_shutdown',reason:'quit'});if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
 });
 
 test('rejects a project extension resolving to a different external file in worktree', async () => {
@@ -72,7 +73,7 @@ test('rejects a project extension resolving to a different external file in work
  writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nWork.');writeFileSync(join(root,'.pi','settings.json'),JSON.stringify({extensions:['../../guard.js']}));writeFileSync(join(base,'guard.js'),"export default function(pi){pi.on('tool_call',()=>({block:true,reason:'parent guard'}));}");git('add','.');git('commit','-m','base');
  mkdirSync(join(root,'.git','subagent-worktrees'),{recursive:true});writeFileSync(join(root,'.git','subagent-worktrees','guard.js'),'export default function(){}');
  const previous=process.env.PI_CODING_AGENT_DIR;process.env.PI_CODING_AGENT_DIR=agentDir;
- const tools=new Map<string,any>(),events=new Map<string,any>();const api:any={registerTool(t:any){tools.set(t.name,t)},on(name:string,fn:any){events.set(name,fn)},getActiveTools(){return ['read']},getAllTools(){return []},sendMessage(){}};extension(api);
+ const mock=createMockPi();Object.assign(mock.pi,{getActiveTools:()=>['read'],getAllTools:()=>[],sendMessage:()=>{}});extension(mock.pi);const tools:Map<string,any>=mock.tools;
  const ctx:any={cwd:root,isProjectTrusted:()=>true,model:undefined,modelRegistry:{},thinkingLevel:'off'};
- try {await events.get('session_start')({type:'session_start',reason:'startup'},ctx);const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/configured.*extensions.*differ/i);} finally {await events.get('session_shutdown')();if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
+ try {await mock.emit('session_start',{type:'session_start',reason:'startup'},ctx);const result=await tools.get('subagent_start').execute('id',{agent:'worker',task:'work',mode:'wait',workspace:'worktree'},undefined,undefined,ctx);assert.equal(result.isError,undefined,result.content[0].text);const payload=JSON.parse(result.content[0].text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/configured.*extensions.*differ/i);} finally {await mock.emit('session_shutdown',{type:'session_shutdown',reason:'quit'});if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
 });
