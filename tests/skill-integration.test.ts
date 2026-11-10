@@ -59,7 +59,7 @@ test('rejects a worktree skill whose model visibility changed after parent load'
  try {
   await session.bindExtensions({mode:'print'});await session.prompt('Start a child');
   const result=session.messages.find(message=>message.role==='toolResult');assert.ok(result && result.role==='toolResult' && !result.isError,JSON.stringify(result));
-  const payload=JSON.parse((result.content[0] as any).text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/visibility differs/);
+  const payload=JSON.parse((result.content[0] as any).text);assert.equal(payload.done[0].state,'failed',JSON.stringify(payload));assert.match(payload.done[0].error,/visibility differs/);assert.equal(childContext,'');
  } finally {await session.extensionRunner.emit({type:'session_shutdown',reason:'quit'});session.dispose();if(previous===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=previous;}
 });
 

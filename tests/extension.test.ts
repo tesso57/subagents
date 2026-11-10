@@ -216,8 +216,7 @@ test('stopping a child reports an unconsumed SDK steering message', async () => 
  mkdirSync(join(root,'nested'),{recursive:true}); writeFileSync(join(root,'nested','AGENTS.md'),'Nested instructions sentinel');
  mkdirSync(join(root,'.pi','agents'),{recursive:true});writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nAsk the parent.');
  const model:any={id:'fake',name:'fake',provider:'fake',api:'openai-completions',baseUrl:'http://example.invalid',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:10000,maxTokens:1000};
- let calls=0; let seenSystemPrompt=''; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:(_model:any,context:any)=>{
-  seenSystemPrompt=JSON.stringify(context);
+ let calls=0; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:()=>{
   const stream=createAssistantMessageEventStream(), first=calls++===0;
   const msg:any={role:'assistant',content:first?[{type:'toolCall',id:'q1',name:'contact_parent',arguments:{message:'Need choice'}}]:[{type:'text',text:'Finished A'}],api:model.api,provider:model.provider,model:model.id,usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:first?'toolUse':'stop',timestamp:Date.now()};
   queueMicrotask(()=>{stream.push({type:'start',partial:msg});stream.push({type:'done',reason:msg.stopReason,message:msg});stream.end();});return stream;
@@ -252,8 +251,7 @@ test('stopping waits for in-flight steering to be accounted for', async () => {
  mkdirSync(join(root,'nested','.pi','extensions'),{recursive:true});writeFileSync(join(root,'nested','.pi','extensions','slow.js'),`export default function(pi){pi.on('input',async event=>{if(event.text==='Important extra instruction') await new Promise(r=>setTimeout(r,60));});}`); writeFileSync(join(root,'nested','AGENTS.md'),'Nested instructions sentinel');
  mkdirSync(join(root,'.pi','agents'),{recursive:true});writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nAsk the parent.');
  const model:any={id:'fake',name:'fake',provider:'fake',api:'openai-completions',baseUrl:'http://example.invalid',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:10000,maxTokens:1000};
- let calls=0; let seenSystemPrompt=''; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:(_model:any,context:any)=>{
-  seenSystemPrompt=JSON.stringify(context);
+ let calls=0; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:()=>{
   const stream=createAssistantMessageEventStream(), first=calls++===0;
   const msg:any={role:'assistant',content:first?[{type:'toolCall',id:'q1',name:'contact_parent',arguments:{message:'Need choice'}}]:[{type:'text',text:'Finished A'}],api:model.api,provider:model.provider,model:model.id,usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:first?'toolUse':'stop',timestamp:Date.now()};
   queueMicrotask(()=>{stream.push({type:'start',partial:msg});stream.push({type:'done',reason:msg.stopReason,message:msg});stream.end();});return stream;
@@ -288,8 +286,7 @@ test('stopping reports steering still awaiting an input handler', async () => {
  mkdirSync(join(root,'nested','.pi','extensions'),{recursive:true});writeFileSync(join(root,'nested','.pi','extensions','slow.js'),`export default function(pi){pi.on('input',async event=>{if(event.text==='Important extra instruction') await new Promise(r=>setTimeout(r,1300));});}`); writeFileSync(join(root,'nested','AGENTS.md'),'Nested instructions sentinel');
  mkdirSync(join(root,'.pi','agents'),{recursive:true});writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nAsk the parent.');
  const model:any={id:'fake',name:'fake',provider:'fake',api:'openai-completions',baseUrl:'http://example.invalid',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:10000,maxTokens:1000};
- let calls=0; let seenSystemPrompt=''; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:(_model:any,context:any)=>{
-  seenSystemPrompt=JSON.stringify(context);
+ let calls=0; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:()=>{
   const stream=createAssistantMessageEventStream(), first=calls++===0;
   const msg:any={role:'assistant',content:first?[{type:'toolCall',id:'q1',name:'contact_parent',arguments:{message:'Need choice'}}]:[{type:'text',text:'Finished A'}],api:model.api,provider:model.provider,model:model.id,usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:first?'toolUse':'stop',timestamp:Date.now()};
   queueMicrotask(()=>{stream.push({type:'start',partial:msg});stream.push({type:'done',reason:msg.stopReason,message:msg});stream.end();});return stream;
@@ -365,8 +362,7 @@ test('rejects steering issued immediately after a stop request', async () => {
  mkdirSync(join(root,'nested'),{recursive:true}); writeFileSync(join(root,'nested','AGENTS.md'),'Nested instructions sentinel');
  mkdirSync(join(root,'.pi','agents'),{recursive:true});writeFileSync(join(root,'.pi','agents','worker.md'),'---\nname: worker\ndescription: worker\n---\nAsk the parent.');
  const model:any={id:'fake',name:'fake',provider:'fake',api:'openai-completions',baseUrl:'http://example.invalid',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:10000,maxTokens:1000};
- let calls=0; let seenSystemPrompt=''; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:(_model:any,context:any)=>{
-  seenSystemPrompt=JSON.stringify(context);
+ let calls=0; const providerConfig:any={api:'openai-completions',apiKey:'fake',models:[model],streamSimple:()=>{
   const stream=createAssistantMessageEventStream(), first=calls++===0;
   const msg:any={role:'assistant',content:first?[{type:'toolCall',id:'q1',name:'contact_parent',arguments:{message:'Need choice'}}]:[{type:'text',text:'Finished A'}],api:model.api,provider:model.provider,model:model.id,usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:first?'toolUse':'stop',timestamp:Date.now()};
   queueMicrotask(()=>{stream.push({type:'start',partial:msg});stream.push({type:'done',reason:msg.stopReason,message:msg});stream.end();});return stream;

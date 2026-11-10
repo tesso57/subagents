@@ -124,7 +124,7 @@ test('shows stopping while an aborted child is still cleaning up', async () => {
 test('terminal result preserves undelivered instructions even when its event is on a later page', async () => {
  let release!:()=>void;
  const c=new Coordinator(1,async()=>{await new Promise<void>(r=>{release=r});return 'done';});
- const first=c.start({agent:'blocker',task:'hold'});
+ c.start({agent:'blocker',task:'hold'});
  for(let i=0;i<60;i++) c.start({agent:'queued',task:String(i)});
  const last=c.start({agent:'queued',task:'last'});c.steer(last,'Important direction');c.stop(last);
  const result=await c.wait([last]);
