@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAgent } from '../src/agents.ts';
+import { loadAgent } from '../extensions/src/agents.ts';
 
 test('loads a named agent from the project and rejects traversal', () => {
   const root = mkdtempSync(join(tmpdir(), 'agent-test-'));

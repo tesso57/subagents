@@ -5,12 +5,13 @@
   "private": true,
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./extensions/index.ts"
     ]
   },
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:package": "node scripts/check-package.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -24,7 +25,7 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": "^22.19.0 || >=24.11.0"
   },
   "description": "Delegate tasks to repository-defined Pi subagents with configurable concurrency and worktree isolation",
   "keywords": [
@@ -34,8 +35,7 @@
     "subagents"
   ],
   "files": [
-    "index.ts",
-    "src/**/*.ts"
+    "extensions"
   ],
   "license": "MIT",
   "repository": {
@@ -45,5 +45,10 @@
   "homepage": "https://github.com/tesso57/subagents#readme",
   "bugs": {
     "url": "https://github.com/tesso57/subagents/issues"
+  },
+  "dependencies": {
+    "@babel/parser": "^8.1.0",
+    "@babel/traverse": "^8.1.0",
+    "import-meta-resolve": "^4.2.0"
   }
 }

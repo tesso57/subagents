@@ -1,10 +1,21 @@
 import { randomUUID } from 'node:crypto';
 
 export type Job = { id: string; agent: string; task: string; [key: string]: unknown };
-export type State = 'queued' | 'starting' | 'running' | 'waiting_for_parent' | 'completed' | 'failed' | 'stopped';
-export type Entry = { job: Job; state: State; result?: string; error?: string; controller: AbortController };
+export type State = 'queued' | 'starting' | 'running' | 'waiting_for_parent' | 'stopping' | 'completed' | 'failed' | 'stopped';
+export type Entry = { job: Job; state: State; result?: string; error?: string; unconsumedSteering?:string[]; unconfirmedSteering?:string[]; controller: AbortController };
 export type Event = { seq: number; id: string; type: string; data?: unknown };
 export type Runner = (job: Job, signal: AbortSignal, coordinator: Coordinator) => Promise<string>;
+
+function splitsSurrogatePair(text:string,offset:number):boolean {
+  if(offset<=0 || offset>=text.length) return false;
+  const before=text.charCodeAt(offset-1),after=text.charCodeAt(offset);
+  return before>=0xD800 && before<=0xDBFF && after>=0xDC00 && after<=0xDFFF;
+}
+function safePageEnd(text:string,offset:number,limit:number):number {
+  let end=Math.min(offset+limit,text.length);
+  if(splitsSurrogatePair(text,end)) end=end===offset+1 ? end+1 : end-1;
+  return end;
+}
 
 export class Coordinator {
   private jobs = new Map<string, Entry>();
@@ -31,11 +42,13 @@ export class Coordinator {
   status(id: string): Entry {
     const e = this.jobs.get(id); if (!e) throw new Error(`Unknown child: ${id}`); return e;
   }
-  list() { return [...this.jobs.values()].map(({ job, state, result, error }) => ({ id:job.id, agent:job.agent, state, resultAvailable: result !== undefined, error, worktree:job.worktree })); }
+  list() { return [...this.jobs.values()].map(({ job, state, result, error, unconsumedSteering, unconfirmedSteering }) => ({ id:job.id, agent:job.agent, state, resultAvailable: result !== undefined, error, unconsumedSteering, unconfirmedSteering, worktree:job.worktree })); }
   result(id: string, offset = 0, limit = 10000) {
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid result range');
     const result = this.status(id).result; if (result === undefined) throw new Error('Result not available');
-    return { text:result.slice(offset,offset+limit), offset, total:result.length, next:offset+limit<result.length?offset+limit:null };
+    if(offset>result.length || splitsSurrogatePair(result,offset)) throw new Error('Invalid result offset: splits a Unicode surrogate pair or exceeds the result');
+    const end=safePageEnd(result,offset,limit);
+    return { text:result.slice(offset,end), offset, total:result.length, next:end<result.length?end:null };
   }
   private emit(id: string, type: string, data?: unknown) {
     const event = { seq: this.events.length + 1, id, type, data };
@@ -57,20 +70,25 @@ export class Coordinator {
           e.error = err instanceof Error ? err.message : String(err);
           if (err && typeof err === 'object' && 'partial' in err && typeof err.partial === 'string') e.result=err.partial;
         } finally {
+          delete e.job.runtimeApiKey;
           for (const [key, p] of this.pending) if (p.id === id) { this.pending.delete(key); p.reject(new Error('Child stopped before reply')); }
-          this.active--; this.emit(id, e.state, { resultAvailable: e.result !== undefined, error: e.error, unconsumedSteering: this.takeSteering(id) }); this.pump();
+          e.unconsumedSteering=[...this.takeSteering(id),...((e.job.unconsumedSteering as string[] | undefined) ?? [])];
+          e.unconfirmedSteering=e.job.unconfirmedSteering as string[] | undefined;
+          this.active--; this.emit(id, e.state, { resultAvailable: e.result !== undefined, error: e.error, unconsumedSteering:e.unconsumedSteering, unconfirmedSteering:e.unconfirmedSteering }); this.pump();
         }
       })();
     }
   }
   ask(id: string, message: string): Promise<string> {
-    const e = this.status(id); if (e.state !== 'running') throw new Error('Child is not running');
+    const e = this.status(id); if (e.state !== 'running' && e.state !== 'waiting_for_parent') throw new Error('Child is not running');
     const requestId = randomUUID(); e.state = 'waiting_for_parent';
     return new Promise((resolve, reject) => { this.pending.set(requestId, { id, message, resolve, reject }); this.emit(id, 'question', { requestId, message }); });
   }
   reply(id: string, requestId: string, answer: string) {
     const p = this.pending.get(requestId); if (!p || p.id !== id) throw new Error('Question is no longer pending');
-    this.pending.delete(requestId); this.status(id).state = 'running'; p.resolve(answer); this.emit(id, 'answered', { requestId });
+    this.pending.delete(requestId);
+    this.status(id).state = [...this.pending.values()].some(other=>other.id===id) ? 'waiting_for_parent' : 'running';
+    p.resolve(answer); this.emit(id, 'answered', { requestId });
   }
   steer(id: string, message: string) {
     const e = this.status(id);
@@ -82,16 +100,21 @@ export class Coordinator {
   stop(id: string) {
     const e = this.status(id);
     if (['completed','failed','stopped'].includes(e.state)) return;
+    const wasQueued=e.state==='queued';
+    e.state=wasQueued ? 'stopped' : 'stopping';
     e.controller.abort();
-    if (e.state === 'queued') { e.state = 'stopped'; this.emit(id, 'stopped'); }
-    for (const [key, p] of this.pending) if (p.id === id) { this.pending.delete(key); p.reject(new Error('Child stopped')); }
+    if (wasQueued) {delete e.job.runtimeApiKey;e.unconsumedSteering=this.takeSteering(id);this.emit(id, 'stopped', {unconsumedSteering:e.unconsumedSteering});}
+    for (const [key, p] of this.pending) if (p.id === id) { this.pending.delete(key); this.emit(id,'question_cancelled',{requestId:key}); p.reject(new Error('Child stopped')); }
   }
   async wait(ids: string[], cursor = 0, signal?: AbortSignal) {
+    if (ids.length === 0) throw new Error("Provide at least one child ID");
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > this.events.length) throw new Error("Invalid event cursor");
     ids.forEach(id => this.status(id));
     for (;;) {
+      if (signal?.aborted) throw new Error('Wait aborted');
       const questions = [...this.pending].map(([requestId, p]) => ({ requestId, id:p.id, message:p.message }));
       const events = this.events.filter(e => e.seq > cursor).slice(0, 50);
-      const done = ids.map(id => this.status(id)).filter(e => ['completed','failed','stopped'].includes(e.state)).map(e => ({ id:e.job.id, state:e.state, result:e.result?.length && e.result.length > 10000 ? `${e.result.slice(0,10000)}\n[truncated; use subagent_result]` : e.result, error:e.error }));
+      const done = ids.map(id => this.status(id)).filter(e => ['completed','failed','stopped'].includes(e.state)).map(e => ({ id:e.job.id, state:e.state, worktree:e.job.worktree, result:e.result?.length && e.result.length > 10000 ? `${e.result.slice(0,safePageEnd(e.result,0,10000))}\n[truncated; use subagent_result]` : e.result, error:e.error, unconsumedSteering:e.unconsumedSteering, unconfirmedSteering:e.unconfirmedSteering }));
       if (questions.length || done.length) return { events, questions, done, cursor: events.at(-1)?.seq ?? cursor, hasMore: (events.at(-1)?.seq ?? cursor) < this.events.length };
       if (signal?.aborted) throw new Error('Wait aborted');
       await new Promise<void>((resolve, reject) => {

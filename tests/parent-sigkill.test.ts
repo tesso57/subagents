@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import {strict as assert} from 'node:assert';
+import {spawn} from 'node:child_process';
+import {mkdtempSync,existsSync,readFileSync,rmSync,statSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+// Enable when parent-death supervision is implemented. The test command exits on its own.
+test.skip('parent SIGKILL terminates the child bash command', {timeout:10000,skip:process.platform==='win32'}, async () => {
+ const root=mkdtempSync(join(tmpdir(),'subagent-sigkill-')),agentDir=mkdtempSync(join(tmpdir(),'subagent-sigkill-cfg-')),pidFile=join(root,'pid');
+ const moduleUrl=new URL('../extensions/src/child.ts',import.meta.url).href;
+ const program=`import {createChildSession} from ${JSON.stringify(moduleUrl)};import {createAssistantMessageEventStream} from '@earendil-works/pi-ai';const model={id:'fake',name:'fake',provider:'fake',api:'openai-completions',baseUrl:'http://example.invalid',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:10000,maxTokens:1000};const child=await createChildSession({cwd:${JSON.stringify(root)},agentDir:${JSON.stringify(agentDir)},prompt:'work',model,tools:['bash'],ask:async()=>''});child.session.modelRuntime.hasConfiguredAuth=()=>true;child.session.agent.streamFunction=()=>{const stream=createAssistantMessageEventStream();const message={role:'assistant',content:[{type:'toolCall',id:'x',name:'bash',arguments:{command:'echo $$ > pid.tmp; mv pid.tmp pid; exec sleep 3'}}],api:model.api,provider:model.provider,model:model.id,usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'toolUse',timestamp:Date.now()};queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({type:'done',reason:'toolUse',message});stream.end();});return stream;};await child.session.prompt('work');`;
+ const parent=spawn(process.execPath,['--experimental-strip-types','--input-type=module','-e',program],{cwd:process.cwd(),stdio:'ignore'});let pid=0,parentEnded=false;const exited=new Promise<void>(resolve=>{parent.once('exit',()=>{parentEnded=true;resolve();});parent.once('error',()=>{parentEnded=true;resolve();});});
+ try {const deadline=Date.now()+5000;while(!existsSync(pidFile)&&!parentEnded&&Date.now()<deadline)await new Promise(r=>setTimeout(r,20));assert.ok(existsSync(pidFile),'child command did not start');pid=Number(readFileSync(pidFile,'utf8'));assert.ok(Number.isSafeInteger(pid)&&pid>0,'invalid child PID');const startedAt=statSync(pidFile).mtimeMs;assert.ok(Date.now()-startedAt<1000,'observation delayed; result would be inconclusive');assert.equal(parent.kill('SIGKILL'),true);await exited;const cleanupDeadline=Date.now()+300;let alive=true;while(alive&&Date.now()<cleanupDeadline){try{process.kill(pid,0);await new Promise(r=>setTimeout(r,20));}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')alive=false;else throw error;}}assert.ok(Date.now()-startedAt<2000,'observation delayed; result would be inconclusive');assert.equal(alive,false,'child bash command survived parent SIGKILL');}
+ finally {if(!parentEnded){parent.kill('SIGKILL');await exited;}if(pid)await new Promise(r=>setTimeout(r,3100));rmSync(root,{recursive:true,force:true});rmSync(agentDir,{recursive:true,force:true});}
+});
