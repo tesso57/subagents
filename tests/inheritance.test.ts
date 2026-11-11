@@ -72,7 +72,7 @@ test('snapshots discovered prompts with project precedence and CLI overrides', a
 test('does not mistake CLI option values for other Pi flags', async () => {
  const {cliDisabled,explicitSkills,explicitSystemPrompts}=await import('../extensions/src/inheritance.ts');
  const argv=['node','pi','--append-system-prompt','--no-skills','--system-prompt','-e','--','--skill','ignored'];
- assert.equal(cliDisabled(argv,'--no-skills','-ns'),false);
+ assert.equal(cliDisabled(argv,'--no-skills'),false);
  assert.deepEqual(explicitExtensions(argv,'/repo'),[]);
  assert.deepEqual(explicitSkills(argv,'/repo'),[]);
  assert.deepEqual(explicitSystemPrompts(argv),{systemPrompt:'-e',appendSystemPrompts:['--no-skills']});
@@ -92,8 +92,8 @@ test('does not inherit unsupported equals-form extension flags', () => {
 test('inherits Pi no-mcp while retaining explicit skill arguments', async () => {
  const {cliDisabled,explicitSkills}=await import('../extensions/src/inheritance.ts');
  const argv=['node','pi','--no-mcp','--no-skills','--skill','./skill'];
- assert.equal(cliDisabled(argv,'--no-mcp',''),true);
- assert.equal(cliDisabled(argv,'--no-skills','-ns'),true);
+ assert.equal(cliDisabled(argv,'--no-mcp'),true);
+ assert.equal(cliDisabled(argv,'--no-skills'),true);
  assert.deepEqual(explicitSkills(argv,'/repo'),['/repo/skill']);
 });
 

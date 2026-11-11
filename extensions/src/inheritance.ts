@@ -60,7 +60,7 @@ export function snapshotDiscoveredSystemPrompts(cwd:string,agentDir:string,trust
 export function explicitSkills(argv:string[], cwd:string):string[] {
   return [...new Set((parseArgs(argv.slice(2)).skills ?? []).map(value=>resolveLocal(value,cwd)))];
 }
-export function cliDisabled(argv:string[], long:string, _short:string) {
+export function cliDisabled(argv:string[], long:'--no-extensions' | '--no-skills' | '--no-context-files' | '--no-mcp') {
   const parsed=parseArgs(argv.slice(2));
   if (long==='--no-extensions') return parsed.noExtensions === true;
   if (long==='--no-skills') return parsed.noSkills === true;

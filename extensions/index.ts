@@ -50,13 +50,13 @@ export default function extension(pi:ExtensionAPI) {
   let parentExtensionSnapshot:Promise<{value?:Awaited<ReturnType<typeof snapshotProjectExtensions>>;error?:unknown}> | undefined;
   let parentMcpSnapshot:{cwd:string;value?:string} | undefined;
   const captureExtensions=async (cwd:string,trusted:boolean):Promise<{value?:Awaited<ReturnType<typeof snapshotProjectExtensions>>;error?:unknown}> => {
-    const agentDir=getAgentDir(),explicit=explicitExtensions(process.argv,process.cwd()),includeConfigured=!cliDisabled(process.argv,'--no-extensions','-ne');
+    const agentDir=getAgentDir(),explicit=explicitExtensions(process.argv,process.cwd()),includeConfigured=!cliDisabled(process.argv,'--no-extensions');
     try {const root=await repositoryRoot(cwd);return {value:await snapshotProjectExtensions(cwd,agentDir,trusted,root,explicit,includeConfigured)};}
     catch(error) {return {error};}
   };
   const captureParentPrompts=(ctx:ExtensionContext)=>({
     ...snapshotDiscoveredSystemPrompts(ctx.cwd,getAgentDir(),ctx.isProjectTrusted(),cliParentPrompts),
-    contextFiles:cliDisabled(process.argv,'--no-context-files','-nc') ? [] : loadProjectContextFiles({cwd:ctx.cwd,agentDir:getAgentDir()}),
+    contextFiles:cliDisabled(process.argv,'--no-context-files') ? [] : loadProjectContextFiles({cwd:ctx.cwd,agentDir:getAgentDir()}),
   });
   pi.on('session_start',async (_event,ctx)=>{
     try {parentMcpSnapshot={cwd:ctx.cwd,value:mcpFingerprint(ctx.cwd,getAgentDir())};} catch {parentMcpSnapshot={cwd:ctx.cwd};}
@@ -199,7 +199,7 @@ export default function extension(pi:ExtensionAPI) {
       const dirty=base ? await git(root,'status','--short','--untracked-files=all') : '';
       const warning=dirty ? `Uncommitted changes are not included in the worktree base:\n${dirty.slice(0,4000)}` : undefined;
       if (base) { await checkProjectResources(root); const fromBase=await git(root,'show',`${base}:${relative(root,definition.path)}`); if (fromBase.trimEnd()!==definition.contents.trimEnd()) throw new Error('Agent definition differs from committed base'); }
-      const noExtensions=cliDisabled(process.argv,'--no-extensions','-ne');
+      const noExtensions=cliDisabled(process.argv,'--no-extensions');
       let configuredExtensions:string[]=[],extensionGraph:ExtensionGraph={files:[],edges:[]};
       if (base) {
         const snapshot=await (parentExtensionSnapshot ?? captureExtensions(ctx.cwd,ctx.isProjectTrusted()));
@@ -216,14 +216,14 @@ export default function extension(pi:ExtensionAPI) {
       if (unsupportedBuiltins.length) throw new Error(`Cannot inherit explicit built-in extensions: ${unsupportedBuiltins.join(', ')}`);
       const commands=typeof pi.getCommands==='function' ? pi.getCommands() : undefined;
       const parentHasMcp=commands ? commands.some(command=>command.source==='extension' && command.name==='mcp') : !noExtensions;
-      const noMcp=cliDisabled(process.argv,'--no-mcp','') || (!parentHasMcp && !parentTools.some(isMcpTool) && !extraExtensions.includes('builtin:mcp'));
+      const noMcp=cliDisabled(process.argv,'--no-mcp') || (!parentHasMcp && !parentTools.some(isMcpTool) && !extraExtensions.includes('builtin:mcp'));
       const usesMcp=!noMcp && (extraExtensions.includes('builtin:mcp') || (definition.tools ?? parentTools).some(name=>isMcpTool(name) || (parentHasMcp && (name==='codemode' || name==='tool_search'))));
       if (usesMcp && (!parentMcpSnapshot?.value || parentMcpSnapshot.cwd!==ctx.cwd || mcpFingerprint(ctx.cwd,getAgentDir())!==parentMcpSnapshot.value)) throw new Error('Parent MCP configuration changed or cannot be verified; reload before starting a child');
       const commandSkills=commands?.filter(command=>command.source==='skill').map(command=>({name:command.name.slice('skill:'.length),description:command.description ?? '',path:command.sourceInfo.path}));
       const runtimeSkills=parentRunPromptOptions ? captureRuntimeSkills(parentRunPromptOptions.skills,parentPromptSections?.skills,parentTools) : undefined;
       const parentSkills=commandSkills ? runtimeSkills ? commandSkills.map(skill=>{const initial=parentBaselineSkills?.find(item=>item.name===skill.name && item.path===skill.path);return initial ? {...skill,visible:initial.visible} : skill;}) : inferParentSkillVisibility(commandSkills,parentPromptSections?.skills,parentTools) : undefined;
       if (signal?.aborted) throw new Error('Subagent start aborted');
-      const c=manager(ctx), id=c.start({agent:p.agent,task:p.task,root,cwd:ctx.cwd,definition,base,workspace:p.workspace,model,runtimeApiKey,mcpSnapshot:usesMcp ? parentMcpSnapshot?.value : undefined,customSections,parentPreamble:parentPromptSections?.preamble,nativeProvider:model ? ctx.modelRegistry.getRegisteredNativeProvider?.(model.provider) : undefined,providerConfig:model ? ctx.modelRegistry.getRegisteredProviderConfig(model.provider) : undefined,thinkingLevel:ctx.thinkingLevel,parentTools,parentSkills,runtimeSkills,extraExtensions,configuredExtensions,extensionGraph,projectTrusted:ctx.isProjectTrusted(),extraSkills:explicitSkills(process.argv,process.cwd()),noExtensions,noSkills:cliDisabled(process.argv,'--no-skills','-ns'),noMcp,noContextFiles:cliDisabled(process.argv,'--no-context-files','-nc'),...prompts});
+      const c=manager(ctx), id=c.start({agent:p.agent,task:p.task,root,cwd:ctx.cwd,definition,base,workspace:p.workspace,model,runtimeApiKey,mcpSnapshot:usesMcp ? parentMcpSnapshot?.value : undefined,customSections,parentPreamble:parentPromptSections?.preamble,nativeProvider:model ? ctx.modelRegistry.getRegisteredNativeProvider?.(model.provider) : undefined,providerConfig:model ? ctx.modelRegistry.getRegisteredProviderConfig(model.provider) : undefined,thinkingLevel:ctx.thinkingLevel,parentTools,parentSkills,runtimeSkills,extraExtensions,configuredExtensions,extensionGraph,projectTrusted:ctx.isProjectTrusted(),extraSkills:explicitSkills(process.argv,process.cwd()),noExtensions,noSkills:cliDisabled(process.argv,'--no-skills'),noMcp,noContextFiles:cliDisabled(process.argv,'--no-context-files'),...prompts});
       if (signal?.aborted) {c.stop(id);throw new StartedSubagentError('Subagent start aborted',id);}
       if (p.mode==='background') return {id,state:c.status(id).state,warning};
       try {const result=await waitFor(c,[id],0,signal);if(signal?.aborted) throw new Error('Subagent start aborted');return {id,warning,...result};} catch(e) {c.stop(id);throw new StartedSubagentError(e instanceof Error ? e.message : String(e),id);}
