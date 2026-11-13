@@ -58,6 +58,36 @@ description: コードをレビューする
 
 `tools` は親で有効なツールの範囲内に指定します。未指定時も親の有効ツールを引き継ぎます。子には、親への相談に使う `contact_parent` が追加されます。
 
+## skill 内のエージェント定義
+
+`subagent_start` の `agent` には、従来の名前に加えて、作業対象リポジトリ内の Markdown ファイルのパスを指定できます。たとえば、skill とその担当者を次のようにまとめられます。
+
+```text
+.pi/skills/factory/
+├── SKILL.md
+└── agents/
+    ├── plan.md
+    ├── implementer.md
+    └── review.md
+```
+
+各ファイルは `.pi/agents` と同じ frontmatter を使い、`name` をファイル名と一致させます。`SKILL.md` には、例えば次のように書きます。
+
+```markdown
+---
+name: factory
+description: 計画担当に作業を依頼する
+---
+subagent_start を使い、この SKILL.md と同じディレクトリにある
+agents/plan.md の絶対パスを agent に指定してください。
+mode は wait、workspace は shared にしてください。
+依頼の目的と必要な文脈を task に含めてください。
+```
+
+パスはリポジトリルートからの相対パス（例：`.pi/skills/factory/agents/plan.md`）またはリポジトリ内の絶対パスです。名前だけの `plan` は従来どおり `.pi/agents/plan.md` を読みます。同じ名前の定義が複数あっても自動選択せず、パスで指定したファイルを読みます。リポジトリ外を通過するシンボリックリンクは使えません。プロジェクトの信頼設定も従来どおり必要です。
+
+`shared` は指定時のファイルを読み、`worktree` は指定した定義がコミット済みの基点と一致することを確認し、作成した worktree 内の対応ファイルを再確認します。定義ファイル以外の任意の参照先まで同一と保証するものではありません。子に親の会話履歴は渡らないため、必要な情報は task に含めてください。現在はリポジトリ外に置いた skill の agent 定義を直接指定できません。
+
 ## 使い方
 
 Pi で、例えば「`reviewer` を使って変更をレビューして」と依頼します。親は `subagent_start` を使い、`mode` に `background` または `wait`、`workspace` に `shared` または `worktree` を指定します。skill やプロンプトから同じ指示を与えることもできます。

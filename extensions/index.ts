@@ -117,8 +117,8 @@ export default function extension(pi:ExtensionAPI) {
         contextFiles=mapContextFiles(root,result.path,contextFiles,job.cwd as string);
         if (expectedSkills) expectedSkills=mapParentSkills(root,result.path,expectedSkills);
         if (runtimeSkills) runtimeSkills=mapRuntimeSkills(root,result.path,runtimeSkills,job.cwd as string);
-        const worktreeDefinition=loadAgent(result.path, agent.name);
-        if (worktreeDefinition.contents !== agent.contents) throw new Error(`Worktree agent definition differs from requested definition; retained ${cwd}`);
+        const worktreeDefinition=loadAgent(result.path, agent.relativePath);
+        if (worktreeDefinition.contents !== agent.contents || relative(result.path,worktreeDefinition.path)!==relative(root,agent.path)) throw new Error(`Worktree agent definition differs from requested definition; retained ${cwd}`);
       }
       const model = job.model as any;
       if (signal.aborted) throw new Error('Aborted before starting');
@@ -172,7 +172,7 @@ export default function extension(pi:ExtensionAPI) {
     return coordinator;
   };
   const safe = async (fn:()=>Promise<unknown>|unknown) => { try {return text(await fn());} catch(e) {return {...text({error:e instanceof Error?e.message:String(e),...(e instanceof StartedSubagentError ? {id:e.id} : {})}),isError:true};} };
-  pi.registerTool({name:'subagent_start',label:'Start subagent',description:'Start a project agent. Choose background or wait and shared or worktree explicitly.',parameters:Type.Object({agent:Type.String(),task:Type.String(),mode:Type.Union([Type.Literal('background'),Type.Literal('wait')]),workspace:Type.Union([Type.Literal('shared'),Type.Literal('worktree')])}),
+  pi.registerTool({name:'subagent_start',label:'Start subagent',description:'Start a repository agent by name or repository-local Markdown path. Choose background or wait and shared or worktree explicitly.',parameters:Type.Object({agent:Type.String(),task:Type.String(),mode:Type.Union([Type.Literal('background'),Type.Literal('wait')]),workspace:Type.Union([Type.Literal('shared'),Type.Literal('worktree')])}),
     async execute(_id,p,signal,_update,ctx) { return safe(async()=>{
       if (signal?.aborted) throw new Error('Subagent start aborted');
       if (!ctx.isProjectTrusted()) throw new Error('Project is not trusted; project agent definitions cannot be run');
