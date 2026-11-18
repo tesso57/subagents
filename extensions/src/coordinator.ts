@@ -3,8 +3,11 @@ import { randomUUID } from 'node:crypto';
 export type Job = { id: string; agent: string; task: string; [key: string]: unknown };
 export type State = 'queued' | 'starting' | 'running' | 'waiting_for_parent' | 'stopping' | 'completed' | 'failed' | 'stopped';
 export type Entry = { job: Job; state: State; result?: string; error?: string; unconsumedSteering?:string[]; unconfirmedSteering?:string[]; controller: AbortController };
-export type Event = { seq: number; id: string; type: string; data?: unknown };
+export type Event = Readonly<{ seq: number; id: string; type: string; data?: unknown }>;
 export type Runner = (job: Job, signal: AbortSignal, coordinator: Coordinator) => Promise<string>;
+
+type Stop = { timer: ReturnType<typeof setTimeout>; delaySeq?: number };
+const STOP_DELAY_MS = 11_000;
 
 function splitsSurrogatePair(text:string,offset:number):boolean {
   if(offset<=0 || offset>=text.length) return false;
@@ -24,6 +27,7 @@ export class Coordinator {
   private events: Event[] = [];
   private pending = new Map<string, { id: string; message: string; resolve: (value: string) => void; reject: (error: Error) => void }>();
   private steering = new Map<string, string[]>();
+  private stops = new Map<string, Stop>();
   private active = 0;
   private closed = false;
   private limit: number;
@@ -42,7 +46,12 @@ export class Coordinator {
   status(id: string): Entry {
     const e = this.jobs.get(id); if (!e) throw new Error(`Unknown child: ${id}`); return e;
   }
-  list() { return [...this.jobs.values()].map(({ job, state, result, error, unconsumedSteering, unconfirmedSteering }) => ({ id:job.id, agent:job.agent, state, resultAvailable: result !== undefined, error, unconsumedSteering, unconfirmedSteering, worktree:job.worktree })); }
+  list() {
+    return [...this.jobs.values()].map(({ job, state, result, error, unconsumedSteering, unconfirmedSteering }) => ({
+      id:job.id, agent:job.agent, state, stopDelayed: this.stops.get(job.id)?.delaySeq !== undefined || undefined,
+      resultAvailable: result !== undefined, error, unconsumedSteering, unconfirmedSteering, worktree:job.worktree,
+    }));
+  }
   result(id: string, offset = 0, limit = 10000) {
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid result range');
     const result = this.status(id).result; if (result === undefined) throw new Error('Result not available');
@@ -51,7 +60,7 @@ export class Coordinator {
     return { text:result.slice(offset,end), offset, total:result.length, next:end<result.length?end:null };
   }
   private emit(id: string, type: string, data?: unknown) {
-    const event = { seq: this.events.length + 1, id, type, data };
+    const event = Object.freeze({ seq: this.events.length + 1, id, type, data });
     this.events.push(event);
     for (const f of [...this.listeners]) f();
     try { if (!this.closed) this.notify?.(event); } catch { /* notification is a hint; events remain available */ }
@@ -62,7 +71,9 @@ export class Coordinator {
       this.active++; e.state = 'starting'; this.emit(id, 'starting');
       void (async () => {
         try {
+          e.controller.signal.throwIfAborted();
           e.state = 'running'; this.emit(id, 'running');
+          e.controller.signal.throwIfAborted();
           e.result = await this.runner(e.job, e.controller.signal, this);
           e.state = e.controller.signal.aborted ? 'stopped' : 'completed';
         } catch (err) {
@@ -70,6 +81,11 @@ export class Coordinator {
           e.error = err instanceof Error ? err.message : String(err);
           if (err && typeof err === 'object' && 'partial' in err && typeof err.partial === 'string') e.result=err.partial;
         } finally {
+          const stop = this.stops.get(id);
+          if (stop) {
+            clearTimeout(stop.timer);
+            this.stops.delete(id);
+          }
           delete e.job.runtimeApiKey;
           for (const [key, p] of this.pending) if (p.id === id) { this.pending.delete(key); p.reject(new Error('Child stopped before reply')); }
           e.unconsumedSteering=[...this.takeSteering(id),...((e.job.unconsumedSteering as string[] | undefined) ?? [])];
@@ -99,9 +115,18 @@ export class Coordinator {
   takeSteering(id: string) { const pending = this.steering.get(id) ?? []; this.steering.delete(id); return pending; }
   stop(id: string) {
     const e = this.status(id);
-    if (['completed','failed','stopped'].includes(e.state)) return;
+    if (['completed','failed','stopped','stopping'].includes(e.state)) return;
     const wasQueued=e.state==='queued';
     e.state=wasQueued ? 'stopped' : 'stopping';
+    if (!wasQueued) {
+      const stop: Stop = {
+        timer: setTimeout(() => {
+          stop.delaySeq = this.events.length + 1;
+          this.emit(id, 'stop_delayed');
+        }, STOP_DELAY_MS),
+      };
+      this.stops.set(id, stop);
+    }
     e.controller.abort();
     if (wasQueued) {delete e.job.runtimeApiKey;e.unconsumedSteering=this.takeSteering(id);this.emit(id, 'stopped', {unconsumedSteering:e.unconsumedSteering});}
     for (const [key, p] of this.pending) if (p.id === id) { this.pending.delete(key); this.emit(id,'question_cancelled',{requestId:key}); p.reject(new Error('Child stopped')); }
@@ -113,9 +138,16 @@ export class Coordinator {
     for (;;) {
       if (signal?.aborted) throw new Error('Wait aborted');
       const questions = [...this.pending].map(([requestId, p]) => ({ requestId, id:p.id, message:p.message }));
-      const events = this.events.filter(e => e.seq > cursor).slice(0, 50);
+      const events = this.events.slice(cursor, cursor + 50);
+      const stopDelayed = ids.flatMap(id => {
+        const seq = this.stops.get(id)?.delaySeq;
+        return seq !== undefined && seq > cursor ? [{ id, seq }] : [];
+      });
       const done = ids.map(id => this.status(id)).filter(e => ['completed','failed','stopped'].includes(e.state)).map(e => ({ id:e.job.id, state:e.state, worktree:e.job.worktree, result:e.result?.length && e.result.length > 10000 ? `${e.result.slice(0,safePageEnd(e.result,0,10000))}\n[truncated; use subagent_result]` : e.result, error:e.error, unconsumedSteering:e.unconsumedSteering, unconfirmedSteering:e.unconfirmedSteering }));
-      if (questions.length || done.length) return { events, questions, done, cursor: events.at(-1)?.seq ?? cursor, hasMore: (events.at(-1)?.seq ?? cursor) < this.events.length };
+      if (questions.length || done.length || stopDelayed.length) {
+        const nextCursor = events.at(-1)?.seq ?? cursor;
+        return { events, questions, done, stopDelayed, cursor: nextCursor, hasMore: nextCursor < this.events.length };
+      }
       if (signal?.aborted) throw new Error('Wait aborted');
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => { this.listeners.delete(wake); signal?.removeEventListener('abort', abort); };
@@ -128,6 +160,12 @@ export class Coordinator {
   }
   async shutdown() {
     this.closed = true; for (const id of this.jobs.keys()) this.stop(id);
-    while (this.active > 0) await new Promise<void>(resolve => { const wake=()=>{this.listeners.delete(wake); resolve();}; this.listeners.add(wake); });
+    while (this.active > 0) {
+      const delayed = [...this.stops].filter(([, stop]) => stop.delaySeq !== undefined);
+      if (delayed.length === this.active) {
+        throw new Error(`Timed out waiting for child aborts: ${delayed.map(([id]) => id).join(', ')}`);
+      }
+      await new Promise<void>(resolve => { const wake=()=>{this.listeners.delete(wake); resolve();}; this.listeners.add(wake); });
+    }
   }
 }

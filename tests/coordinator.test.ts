@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { Coordinator } from '../extensions/src/coordinator.ts';
+import { Coordinator, type Event } from '../extensions/src/coordinator.ts';
 
 test('queues children at concurrency limit and starts the next after completion', async () => {
   const release: (() => void)[] = [];
@@ -103,6 +103,30 @@ test('wait rejects invalid or future event cursors', async () => {
  for (const cursor of [-1,0.5,Number.NaN,10000]) await assert.rejects(c.wait([id],cursor),/cursor/i);
 });
 
+test('event pages match sequence filtering at every valid cursor', async () => {
+ const history: Event[] = [];
+ const c = new Coordinator(1, async () => 'done', event => history.push(event));
+ const ids: string[] = [];
+ for (let i = 0; i < 31; i++) {
+  const id = c.start({agent:'worker',task:String(i)});
+  await c.wait([id]);
+  ids.push(id);
+ }
+ assert.equal(history.length, 124);
+ assert.ok(history.every((event, index) => event.seq === index + 1));
+ assert.equal(Reflect.set(history[0], 'seq', 1000), false);
+ for (let cursor = 0; cursor <= history.length; cursor++) {
+  const page = await c.wait([ids[0]], cursor);
+  const expected = history.filter(event => event.seq > cursor).slice(0, 50);
+  assert.deepEqual(page.events, expected);
+  assert.equal(page.cursor, expected.at(-1)?.seq ?? cursor);
+  assert.equal(page.hasMore, page.cursor < history.length);
+ }
+ const oldEnd = history.length;
+ await c.wait([c.start({agent:'worker',task:'new'})]);
+ assert.deepEqual((await c.wait([ids[0]], oldEnd)).events, history.slice(oldEnd));
+});
+
 test('reports unconsumed instructions when a queued child is stopped', async () => {
  let release!:()=>void;
  const c=new Coordinator(1,async()=>{await new Promise<void>(r=>{release=r});return 'done';});
@@ -119,6 +143,87 @@ test('shows stopping while an aborted child is still cleaning up', async () => {
  const c=new Coordinator(1,async(_job,signal)=>{ready();await new Promise<void>(r=>signal.addEventListener('abort',()=>r(),{once:true}));await new Promise<void>(r=>{finish=r;});return '';});
  const id=c.start({agent:'worker',task:'work'});await started;c.stop(id);
  assert.equal(c.status(id).state,'stopping');await new Promise(r=>setImmediate(r));finish();await c.wait([id]);assert.equal(c.status(id).state,'stopped');
+});
+
+test('reports a stop delay outside the event page and holds the slot until the runner settles', {timeout: 2000}, async t => {
+ t.mock.timers.enable({apis:['setTimeout']});
+ let finish!: () => void;
+ const starts: string[] = [];
+ const c = new Coordinator(1, async (job) => {
+  starts.push(job.id);
+  if (job.agent === 'stalled') await new Promise<void>(resolve => { finish = resolve; });
+  return 'done';
+ });
+ const id = c.start({agent:'stalled',task:'ignore abort'});
+ const next = c.start({agent:'queued',task:'wait for a slot'});
+ for (let i = 0; i < 50; i++) c.stop(c.start({agent:'discard',task:String(i)}));
+
+ c.stop(id);
+ t.mock.timers.tick(10_999);
+ assert.equal(c.list()[0].stopDelayed, undefined);
+ c.stop(id);
+ const waiting = c.wait([id]);
+ t.mock.timers.tick(1);
+ const first = await waiting;
+ assert.equal(first.done.length, 0);
+ assert.equal(first.hasMore, true);
+ const [delay] = first.stopDelayed;
+ assert.equal(delay.id, id);
+ assert.ok(delay.seq > first.cursor);
+ assert.equal(c.list()[0].stopDelayed, true);
+ assert.equal(c.status(id).state, 'stopping');
+ assert.equal(c.status(next).state, 'queued');
+ assert.deepEqual(starts, [id]);
+
+ const page = await c.wait([id], delay.seq - 1);
+ assert.equal(page.events[0].type, 'stop_delayed');
+ assert.equal(page.cursor, delay.seq);
+ c.stop(id);
+ t.mock.timers.tick(11_000);
+ const following = c.wait([id], page.cursor);
+ finish();
+ const terminal = await following;
+ assert.deepEqual(terminal.stopDelayed, []);
+ assert.equal(terminal.done[0].state, 'stopped');
+ assert.equal(terminal.events.some(event => event.type === 'stop_delayed'), false);
+ assert.equal(c.list()[0].stopDelayed, undefined);
+ assert.equal((await c.wait([next])).done[0].state, 'completed');
+ assert.deepEqual(starts, [id, next]);
+});
+
+test('shutdown reports remaining delayed children and observes late cleanup', {timeout: 2000}, async t => {
+ t.mock.timers.enable({apis:['setTimeout']});
+ const releases = new Map<string, () => void>();
+ const c = new Coordinator(2, async job => {
+  await new Promise<void>(resolve => { releases.set(job.id, resolve); });
+  return 'done';
+ });
+ const first = c.start({agent:'first',task:'work'});
+ const second = c.start({agent:'second',task:'work'});
+ const queued = c.start({agent:'queued',task:'work'});
+ c.stop(first);
+ t.mock.timers.tick(11_000);
+ const shutdown = c.shutdown();
+ const rejected = assert.rejects(shutdown, (error: Error) => {
+  assert.match(error.message, /Timed out waiting for child aborts/);
+  assert.ok(error.message.includes(first));
+  assert.ok(error.message.includes(second));
+  assert.ok(!error.message.includes(queued));
+  return true;
+ });
+ assert.equal(c.status(queued).state, 'stopped');
+ assert.equal(c.list()[1].stopDelayed, undefined);
+ t.mock.timers.tick(11_000);
+ await rejected;
+ assert.equal(c.status(first).state, 'stopping');
+ assert.equal(c.status(second).state, 'stopping');
+ const delayed = await c.wait([first]);
+ releases.get(first)!();
+ releases.get(second)!();
+ assert.equal((await c.wait([first], delayed.cursor)).done[0].state, 'stopped');
+ await c.shutdown();
+ assert.equal(c.status(second).state, 'stopped');
+ assert.throws(() => c.start({agent:'closed',task:'work'}), /closed/);
 });
 
 test('terminal result preserves undelivered instructions even when its event is on a later page', async () => {

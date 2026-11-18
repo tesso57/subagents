@@ -38,6 +38,18 @@ test('suppresses a terminal notification returned in another child wait event pa
  assert.deepEqual(delivered,[]);
 });
 
+test('delivers unreported stop delays and suppresses delays already reported by wait or superseded by completion', async () => {
+ const delivered: number[] = [];
+ const n = new Notifications(event => delivered.push(event.seq));
+ n.notify({seq:1,id:'a',type:'stop_delayed'});
+ n.notify({seq:2,id:'b',type:'stop_delayed'});
+ n.notify({seq:3,id:'c',type:'stop_delayed'});
+ n.notify({seq:4,id:'c',type:'stopped'});
+ await n.wait(async () => ({events:[],questions:[],done:[],stopDelayed:[{id:'a',seq:1}]}));
+ await new Promise(resolve => setImmediate(resolve));
+ assert.deepEqual(delivered, [2, 4]);
+});
+
 test('does not notify a question that has already been answered', async () => {
  const delivered:string[]=[];const n=new Notifications(event=>delivered.push(event.type));
  n.notify({seq:1,id:'a',type:'question',data:{requestId:'q',message:'help'}});
