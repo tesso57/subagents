@@ -228,7 +228,7 @@ export default function extension(pi:ExtensionAPI) {
       if (p.mode==='background') return {id,state:c.status(id).state,warning};
       try {const result=await waitFor(c,[id],0,signal);if(signal?.aborted) throw new Error('Subagent start aborted');return {id,warning,...result};} catch(e) {c.stop(id);throw new StartedSubagentError(e instanceof Error ? e.message : String(e),id);}
     }); }});
-  pi.registerTool({name:'subagent_wait',label:'Wait for subagents',description:'Wait for completion or a question from any child; preserve the returned cursor.',parameters:Type.Object({ids:Type.Array(Type.String(),{minItems:1}),cursor:Type.Optional(Type.Integer({minimum:0}))}),async execute(_id,p,signal,_u,ctx){return safe(()=>waitFor(manager(ctx),p.ids,p.cursor??0,signal));}});
+  pi.registerTool({name:'subagent_wait',label:'Wait for subagents',description:'Wait for completion or a stop delay from a listed child, or a question from any child. Preserve the returned cursor.',parameters:Type.Object({ids:Type.Array(Type.String(),{minItems:1}),cursor:Type.Optional(Type.Integer({minimum:0}))}),async execute(_id,p,signal,_u,ctx){return safe(()=>waitFor(manager(ctx),p.ids,p.cursor??0,signal));}});
   pi.registerTool({name:'subagent_result',label:'Read subagent result',description:'Read a page of a completed child result.',parameters:Type.Object({id:Type.String(),offset:Type.Optional(Type.Integer({minimum:0})),limit:Type.Optional(Type.Integer({minimum:1,maximum:10000}))}),async execute(_id,p,_s,_u,ctx){return safe(()=>manager(ctx).result(p.id,p.offset,p.limit));}});
   pi.registerTool({name:'subagent_status',label:'Subagent status',description:'Inspect child states and retained worktrees.',parameters:Type.Object({}),async execute(_id,_p,_s,_u,ctx){return safe(()=>manager(ctx).list());}});
   pi.registerTool({name:'subagent_steer',label:'Steer subagent',description:'Queue an instruction for a running child; queued is not proof the model consumed it.',parameters:Type.Object({id:Type.String(),message:Type.String()}),async execute(_id,p,_signal,_u,ctx){return safe(async()=>{
@@ -244,10 +244,6 @@ export default function extension(pi:ExtensionAPI) {
   pi.on('session_shutdown',async()=>{
     parentObservedSystemMessages=undefined;parentRunPromptOptions=undefined;parentBaselineSkills=undefined;
     notifications.close();
-    const cleanup=coordinator?.shutdown() ?? Promise.resolve();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // Allow time for in-flight steering (1s), child shutdown (5s), and MCP cleanup (3s).
-    try { await Promise.race([cleanup,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('Timed out waiting for child aborts')),11000);})]); }
-    finally { if(timer) clearTimeout(timer); }
+    await coordinator?.shutdown();
   });
 }

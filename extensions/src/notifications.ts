@@ -4,6 +4,7 @@ type Snapshot = {
   events: Array<{seq:number}>;
   questions: Array<{id:string; requestId:string}>;
   done: Array<{id:string; state:string}>;
+  stopDelayed?: Array<{id:string; seq:number}>;
 };
 
 /** Defer delivery until waiting tool calls have returned their snapshots. */
@@ -15,15 +16,21 @@ export class Notifications {
 
   notify(event:Event) {
     if (this.closed) return;
-    if (['completed','failed','stopped','answered','question_cancelled'].includes(event.type)) {
+    const terminal = ['completed','failed','stopped'].includes(event.type);
+    if (terminal || ['answered','question_cancelled'].includes(event.type)) {
       for (const [seq, pending] of this.pending) {
-        if (pending.event.id!==event.id || pending.event.type!=='question') continue;
+        if (pending.event.id!==event.id) continue;
+        if (terminal && pending.event.type==='stop_delayed') {
+          clearImmediate(pending.timer); this.pending.delete(seq);
+          continue;
+        }
+        if (pending.event.type!=='question') continue;
         const questionId=(pending.event.data as {requestId?:unknown} | undefined)?.requestId;
         const answerId=(event.data as {requestId?:unknown} | undefined)?.requestId;
-        if ((event.type!=='answered' && event.type!=='question_cancelled') || (questionId!==undefined && questionId===answerId)) { clearImmediate(pending.timer); this.pending.delete(seq); }
+        if (terminal || (questionId!==undefined && questionId===answerId)) { clearImmediate(pending.timer); this.pending.delete(seq); }
       }
     }
-    if (!['question','completed','failed','stopped'].includes(event.type)) return;
+    if (!terminal && !['question','stop_delayed'].includes(event.type)) return;
     const acknowledgements:Array<AbortSignal | undefined>=[];
     const timer=setImmediate(()=>{
       this.pending.delete(event.seq);
@@ -38,7 +45,7 @@ export class Notifications {
     if (signal?.aborted) throw new Error('Wait aborted');
     for (const [seq,{event,acknowledgements}] of this.pending) {
       const requestId=event.type==='question' && event.data && typeof event.data==='object' && 'requestId' in event.data ? event.data.requestId : undefined;
-      const included=result.events.some(e=>e.seq===seq) || (event.type==='question'
+      const included=result.events.some(e=>e.seq===seq) || result.stopDelayed?.some(d=>d.seq===seq) || (event.type==='question'
         ? result.questions.some(q=>q.id===event.id && q.requestId===requestId)
         : result.done.some(d=>d.id===event.id && d.state===event.type));
       if (included) acknowledgements.push(signal);
