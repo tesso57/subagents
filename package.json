@@ -11,7 +11,8 @@
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check:package": "node scripts/check-package.mjs"
+    "check:package": "node scripts/check-package.mjs && npm run test:startup",
+    "test:startup": "node scripts/check-pi-startup.mjs tool subagent_start"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
