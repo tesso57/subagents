@@ -63,7 +63,7 @@ export class Coordinator {
     const event = Object.freeze({ seq: this.events.length + 1, id, type, data });
     this.events.push(event);
     for (const f of [...this.listeners]) f();
-    try { if (!this.closed) this.notify?.(event); } catch { /* notification is a hint; events remain available */ }
+    try { if (!this.closed) this.notify?.(event); } catch {   }
   }
   private pump() {
     while (!this.closed && this.active < this.limit && this.queue.length) {

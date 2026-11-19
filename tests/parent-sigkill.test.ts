@@ -5,7 +5,6 @@ import {mkdtempSync,existsSync,readFileSync,rmSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-// Enable when parent-death supervision is implemented. The test command exits on its own.
 test.skip('parent SIGKILL terminates the child bash command', {timeout:10000,skip:process.platform==='win32'}, async () => {
  const root=mkdtempSync(join(tmpdir(),'subagent-sigkill-')),agentDir=mkdtempSync(join(tmpdir(),'subagent-sigkill-cfg-')),pidFile=join(root,'pid');
  const moduleUrl=new URL('../extensions/src/child.ts',import.meta.url).href;

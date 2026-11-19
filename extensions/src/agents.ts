@@ -11,7 +11,7 @@ export function loadAgent(root: string, selector: string): Agent {
   if (!named && isAbsolute(selector)) {
     let ancestor=logical, rootAlias:string | undefined;
     while (true) {
-      try {if (realpathSync(ancestor)===base) rootAlias=ancestor;} catch { /* Check the next ancestor. */ }
+      try {if (realpathSync(ancestor)===base) rootAlias=ancestor;} catch {   }
       const parent=dirname(ancestor);if(parent===ancestor) break;ancestor=parent;
     }
     if (rootAlias) logical=join(base,relative(rootAlias,logical));

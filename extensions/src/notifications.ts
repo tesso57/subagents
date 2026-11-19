@@ -7,7 +7,6 @@ type Snapshot = {
   stopDelayed?: Array<{id:string; seq:number}>;
 };
 
-/** Defer delivery until waiting tool calls have returned their snapshots. */
 export class Notifications {
   private pending = new Map<number, {event:Event; timer:ReturnType<typeof setImmediate>; acknowledgements:Array<AbortSignal | undefined>}>();
   private closed = false;
@@ -35,7 +34,7 @@ export class Notifications {
     const timer=setImmediate(()=>{
       this.pending.delete(event.seq);
       const received=acknowledgements.some(signal=>!signal || !signal.aborted);
-      if (!this.closed && !received) { try { this.deliver(event); } catch { /* state remains available through wait/status */ } }
+      if (!this.closed && !received) { try { this.deliver(event); } catch {   } }
     });
     this.pending.set(event.seq,{event,timer,acknowledgements});
   }

@@ -8,7 +8,6 @@ import { assertParentPrompts, hasOpaqueSystemContent, replayPromptSections } fro
 const mcpResourceTools=new Set(['list_mcp_resources','list_mcp_resource_templates','read_mcp_resource']);
 export const isMcpTool=(name:string)=>name.startsWith('mcp__') || mcpResourceTools.has(name);
 
-/** Preserve the most recent non-empty assistant text if a later response failed without text. */
 export function lastAvailableAssistantText(session:Pick<AgentSession,'messages' | 'getLastAssistantText'>):string {
   const last=session.getLastAssistantText();
   if (last) return last;
@@ -97,7 +96,7 @@ export async function createChildSession(options: {cwd:string; agentDir?:string;
             Promise.allSettled(mcpShutdowns.map(shutdown=>shutdown(ctx))),
             new Promise<void>(resolve=>{cleanupTimer=setTimeout(resolve,3000);}),
           ]);
-        } catch { /* The original timeout remains the reported failure. */ }
+        } catch {   }
         finally {if(cleanupTimer) clearTimeout(cleanupTimer);}
       }
       const failure=error instanceof Error ? error : new Error(String(error));

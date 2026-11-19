@@ -31,7 +31,6 @@ test('Pi loads the extension entrypoint and registers subagent tools', async () 
   }
 });
 
-// Exercise the files users receive, using the already-installed dependencies.
 test('Pi loads the npm archive after extraction', {skip: process.platform === 'win32'}, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'pi-extension-package-'));
   try {

@@ -7,7 +7,6 @@ export type ContextFile = {path:string;content:string};
 type PromptSnapshot = { systemPrompt?:string; appendSystemPrompts:string[]; contextFiles?:ContextFile[] };
 const builtInSections=new Set(['preamble','tools','rules','docs','addendum','project_context','skills','cwd']);
 
-/** Replay Pi system-message section updates from the context sent to the model. */
 export function replayPromptSections(messages:Message[]):Record<string,string> {
   const sections:Record<string,string>={};
   for (const message of messages) {
@@ -43,13 +42,11 @@ export function assertParentPrompts(snapshot:PromptSnapshot, sections:Record<str
   }
 }
 
-/** Reject opaque runtime overrides, which cannot be safely split into child prompt sections. */
 export function assertEffectiveParentPrompt(sections:Record<string,string>, effective:string) {
   const rendered=Object.values(sections).filter(Boolean).join('\n\n');
   if (rendered!==effective) throw new Error('Parent system prompt cannot be safely inherited; an extension changed the effective prompt');
 }
 
-/** Capture structured custom sections without copying parent-specific built-in sections. */
 export function captureCustomPromptSections(raw:Record<string,string> | undefined, observed:Record<string,string>):Record<string,string> {
   const result:Record<string,string>=Object.create(null);
   for (const [name,value] of Object.entries(raw ?? {})) {

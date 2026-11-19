@@ -48,7 +48,6 @@ function nearestManifest(from:string,root:string):string | undefined {
   return undefined;
 }
 
-/** Capture statically resolvable relative dependencies of project-local extension entry points. */
 export function snapshotExtensionGraph(entries:string[],root?:string):ExtensionGraph {
   const files:GraphFile[]=[],edges:GraphEdge[]=[],seen=new Set<string>();
   const canonicalRoot=root ? realpathSync(root) : undefined;
@@ -207,7 +206,6 @@ export function snapshotExtensionGraph(entries:string[],root?:string):ExtensionG
   return {files,edges};
 }
 
-/** Check the parent's startup files have not changed and map each local dependency into the worktree. */
 export function validateExtensionGraph(graph:ExtensionGraph,root:string,worktree:string) {
   const mapping=new Map<string,string>();
   for(const file of graph.files) {

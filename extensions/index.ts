@@ -67,7 +67,7 @@ export default function extension(pi:ExtensionAPI) {
         const skills=pi.getCommands().filter(command=>command.source==='skill').map(command=>({name:command.name.slice('skill:'.length),description:command.description ?? '',path:command.sourceInfo.path}));
         parentBaselineSkills=inferBaselineSkillVisibility(skills,ctx.getSystemPrompt(),pi.getActiveTools(),ctx.cwd,parentPrompts.systemPrompt);
       }
-    } catch { /* The static visibility baseline is unavailable. */ }
+    } catch {   }
     parentExtensionSnapshot=ctx.isProjectTrusted() ? captureExtensions(ctx.cwd,true) : undefined;
     if (parentExtensionSnapshot) await parentExtensionSnapshot;
   });

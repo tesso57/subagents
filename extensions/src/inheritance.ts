@@ -17,7 +17,6 @@ function resolveLocal(value:string,cwd:string):string {
   return resolve(cwd,value);
 }
 
-/** Use Pi's parser so option values cannot be mistaken for flags. */
 export function explicitExtensions(argv:string[], cwd:string):string[] {
   const values=parseArgs(argv.slice(2)).extensions ?? [];
   const normalize=(value:string)=>/^(npm:|git:|builtin:|https?:\/\/|ssh:\/\/)/i.test(value) ? value : resolveLocal(value,cwd);
@@ -32,7 +31,6 @@ export function explicitSystemPrompts(argv:string[]): {systemPrompt?:string; app
   };
 }
 
-/** Capture prompt file contents while Pi loads the extension, before child launches. */
 export function snapshotSystemPrompts(argv:string[]): {systemPrompt?:string; appendSystemPrompts?:string[]} {
   const values=explicitSystemPrompts(argv);
   const snapshot=(value:string)=>{

@@ -5,7 +5,6 @@ import { formatSkillsForPrompt, type Skill } from '@earendil-works/pi-coding-age
 
 export type ParentSkill={name:string;description:string;path:string;visible?:boolean};
 
-/** Infer a baseline only from Pi's skills section immediately before its cwd section. */
 export function inferBaselineSkillVisibility(skills:ParentSkill[],prompt:string,tools:string[],cwd:string,customPrompt?:string):ParentSkill[] | undefined {
   if (!tools.includes('read') && !tools.includes('bash')) return skills.map(skill=>({...skill,visible:undefined}));
   let remainder=prompt;
@@ -46,7 +45,6 @@ export function assertRuntimeSkillVisibility(skills:Skill[],section:string | und
   if (inferred.some((skill,index)=>skill.visible!==undefined && skill.visible===skills[index].disableModelInvocation)) throw new Error('Child runtime skill visibility differs from the parent');
 }
 
-/** Derive visibility from the exact skill section that Pi sent to the parent model. */
 export function inferParentSkillVisibility(skills:ParentSkill[],section:string | undefined,parentTools:string[]):ParentSkill[] {
   if (section===undefined) {
     const canRead=parentTools.includes('read') || parentTools.includes('bash');
@@ -69,14 +67,12 @@ export function inferParentSkillVisibility(skills:ParentSkill[],section:string |
   return withVisibility;
 }
 
-/** Map project skills to matching worktree files and compare their supporting directories. */
 export function mapParentSkills(root:string,worktree:string,skills:ParentSkill[]):ParentSkill[] {
   const roots=skills.map(skill=>basename(skill.path)==='SKILL.md' ? dirname(skill.path) : skill.path);
   const mapped=mapWorktreeSkills(root,worktree,roots);
   return skills.map((skill,index)=>({...skill,path:basename(skill.path)==='SKILL.md' ? join(mapped[index],'SKILL.md') : mapped[index]}));
 }
 
-/** Verify that a child discovers the same named skills, descriptions and files as its parent. */
 export function assertChildSkills(expected:ParentSkill[],actual:Array<{name:string;description:string;filePath:string;disableModelInvocation?:boolean}>) {
   const remaining=new Map(actual.map(skill=>[skill.name,skill]));
   for (const skill of expected) {

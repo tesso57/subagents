@@ -30,7 +30,7 @@ export async function prepareWorktree(root: string, id: string, commit?: string,
     const entries=async()=> (await git(root,'worktree','list','--porcelain','-z')).split('\0\0').map(entry=>entry.split('\0'));
     const samePath=(left:string,right:string)=>{try{return realpathSync(left)===realpathSync(right);}catch{return resolve(left)===resolve(right);}};
     let before:string[][] | undefined;
-    try {before=await entries();} catch { /* Without a baseline, do not attribute a failed creation. */ }
+    try {before=await entries();} catch {   }
     if (signal?.aborted) throw new Error('Aborted before creating worktree');
     try { await git(root,'worktree','add','-b',branch,path,base); }
     catch (e) {
@@ -45,7 +45,7 @@ export async function prepareWorktree(root: string, id: string, commit?: string,
           const worktree=fields.find(field=>field.startsWith('worktree '))?.slice(9);
           return worktree!==undefined && fields.includes(`branch refs/heads/${branch}`) && fields.includes(`HEAD ${expected}`) && samePath(worktree,path);
         });
-      } catch { /* The error still identifies the attempted path and branch. */ }
+      } catch {   }
       throw new WorktreeCreationError(`Could not create worktree; inspect ${path} and branch ${branch}: ${String(e)}`,registered ? {path,branch,base,creation:'unverified'} : undefined);
     }
     return {path,branch,base};
@@ -88,7 +88,6 @@ export async function checkProjectResources(root: string, base?: string) {
   await assertProjectSkillLinksInside(root);
 }
 
-/** Ensure auto-discovered tracked skill links resolve to the corresponding worktree files. */
 export async function validateWorktreeSkillLinks(root:string,worktree:string) {
   const sourceRoot=realpathSync(root),targetRoot=realpathSync(worktree);
   for (const rel of await projectSkillSymlinks(root)) {
