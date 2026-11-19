@@ -127,6 +127,66 @@ test('event pages match sequence filtering at every valid cursor', async () => {
  assert.deepEqual((await c.wait([ids[0]], oldEnd)).events, history.slice(oldEnd));
 });
 
+test('returned cursors preserve the global event prefix as the log grows', {timeout: 2000}, async t => {
+ const history: Event[] = [];
+ let finish!: () => void;
+ const work = new Promise<void>(resolve => { finish = resolve; });
+ const c = new Coordinator(2, async () => { await work; return 'done'; }, event => history.push(event));
+ const tracked = c.start({agent:'tracked',task:'hold a slot'});
+ const asking = c.start({agent:'asking',task:'ask a question'});
+ const stopped = c.start({agent:'queued',task:'stop before running'});
+ c.stop(stopped);
+ for (let i = 0; i < 50; i++) c.start({agent:'queued',task:String(i)});
+ void c.ask(asking, 'First question').catch(() => {});
+
+ try {
+  const first = await c.wait([tracked], 0, t.signal);
+  assert.equal(first.events.length, 50);
+  assert.equal(first.cursor, 50);
+  assert.equal(first.hasMore, true);
+  assert.ok(first.events.some(event => event.id === stopped && event.type === 'stopped'));
+  assert.deepEqual(first.done, []);
+  assert.deepEqual(first.questions.map(question => question.id), [asking]);
+
+  c.reply(asking, first.questions[0].requestId, 'answered');
+  const cancellation = new AbortController();
+  const blocked = c.wait([tracked], first.cursor, cancellation.signal);
+  try {
+   const turn = Symbol('wait is pending');
+   const outcome = await Promise.race([blocked, new Promise(resolve => setImmediate(resolve, turn))]);
+   assert.equal(outcome, turn);
+  } finally {
+   cancellation.abort();
+   await assert.rejects(blocked, /Wait aborted/);
+  }
+
+  void c.ask(asking, 'Second question').catch(() => {});
+  const secondEnd = history.length;
+  const secondWait = c.wait([tracked], first.cursor, t.signal);
+  const afterSecond = c.start({agent:'queued',task:'append after the second snapshot'});
+  const second = await secondWait;
+  assert.equal(second.cursor, secondEnd);
+  assert.equal(second.hasMore, false);
+
+  const tail = await c.wait([tracked], second.cursor, t.signal);
+  assert.deepEqual(tail.events.map(event => event.id), [afterSecond]);
+  const emptyWait = c.wait([tracked], tail.cursor, t.signal);
+  const afterEmpty = c.start({agent:'queued',task:'append after the empty snapshot'});
+  const empty = await emptyWait;
+  assert.deepEqual(empty.events, []);
+  assert.equal(empty.cursor, tail.cursor);
+  assert.equal(empty.hasMore, false);
+
+  const last = await c.wait([tracked], empty.cursor, t.signal);
+  assert.deepEqual(last.events.map(event => event.id), [afterEmpty]);
+  assert.equal(last.cursor, history.length);
+  assert.deepEqual([first, second, tail, empty, last].flatMap(page => page.events), history);
+ } finally {
+  finish();
+  await c.shutdown();
+ }
+});
+
 test('reports unconsumed instructions when a queued child is stopped', async () => {
  let release!:()=>void;
  const c=new Coordinator(1,async()=>{await new Promise<void>(r=>{release=r});return 'done';});
